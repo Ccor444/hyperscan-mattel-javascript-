@@ -1,0 +1,214 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>HyperScan JS</title>
+<style>
+:root{--padA:.9}
+html,body{margin:0;height:100%;background:#000;color:#ddd;font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:none}
+#screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+canvas{width:100vw;height:100vh;object-fit:contain;image-rendering:pixelated;display:block}
+body.portrait #screen{align-items:flex-start}
+body.portrait canvas{height:auto;width:100vw}
+body.portrait #pad{--s:clamp(40px,11vmin,62px)}
+body.portrait #sl,body.portrait #sr{top:37vh}
+body.portrait #dp,body.portrait #face{bottom:calc(var(--s)*1.5)}
+body.portrait #mid{bottom:10px}
+/* tela inicial */
+#welcome{position:fixed;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:radial-gradient(ellipse at center,#1d1d1d 0%,#000 70%);text-align:center}
+#welcome.hide{display:none}
+#welcome h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.3px}
+#welcome p{margin:0;max-width:420px;font-size:13px;opacity:.7;line-height:1.5}
+.steps{display:flex;flex-direction:column;gap:10px;width:min(340px,90vw)}
+.step{display:flex;align-items:center;gap:12px;padding:12px 14px;background:#161616;border:1px solid #333;border-radius:12px;cursor:pointer;text-align:left;color:#eee;font:inherit}
+.step .n{width:26px;height:26px;border-radius:50%;background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+.step .t{flex:1;min-width:0}
+.step .t b{display:block;font-size:14px}
+.step .t small{display:block;font-size:11px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .ok{color:#6f6;font-size:16px;flex:none}
+.step.done{border-color:#2d5a2d}
+#welcome #start{font-size:16px;padding:12px 28px;border-radius:12px;background:#2b4f7e;border-color:#3d6aa3;font-weight:600}
+#welcome #start:disabled{background:#1e1e1e;border-color:#333;color:#666;cursor:default}
+#welcome small{font-size:11px;opacity:.5}
+/* cabeçalho flutuante */
+#hud{position:fixed;top:max(8px,env(safe-area-inset-top));left:10px;right:10px;display:flex;align-items:center;gap:8px;z-index:6;pointer-events:none;transition:opacity .35s}
+#hud button{pointer-events:auto}
+#hud #stat{font-size:11px;opacity:.75;background:rgba(0,0,0,.45);padding:3px 8px;border-radius:8px;pointer-events:none}
+#gear{margin-left:auto}
+body.idle #hud{opacity:0}
+body.idle #hud button{pointer-events:none}
+button{font:inherit;color:#eee;background:rgba(30,30,30,.75);border:1px solid rgba(255,255,255,.22);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:active,button.on{background:rgba(58,90,138,.9)}
+button:disabled{opacity:.45;cursor:default}
+#err{position:fixed;top:56px;left:50%;transform:translateX(-50%);max-width:min(560px,92vw);background:rgba(120,20,20,.92);color:#fff;padding:8px 12px;border-radius:10px;font-size:12px;z-index:7;display:none;white-space:pre-wrap}
+#err.show{display:block}
+/* painel de configuração */
+#panel{position:fixed;top:60px;right:10px;width:min(360px,calc(100vw - 20px));max-height:calc(100vh - 80px);overflow:auto;background:#181818;border:1px solid #3a3a3a;border-radius:12px;padding:6px 14px 14px;box-shadow:0 8px 28px #000;display:none;z-index:10}
+#panel.open{display:block}
+#panel h4{margin:14px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.6;font-weight:600}
+#panel label{display:flex;align-items:center;gap:9px;margin:7px 0;font-size:13px}
+#panel details{margin-top:14px;border-top:1px solid #2a2a2a;padding-top:8px}
+#panel summary{cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.6;font-weight:600;padding:4px 0}
+#panel details label{margin:6px 0}
+#panel pre{background:#000;padding:6px;overflow:auto;max-height:18vh;font-size:11px;white-space:pre-wrap;margin:6px 0;border-radius:6px}
+.frow{display:flex;align-items:center;gap:10px;width:100%;margin:6px 0;text-align:left;padding:9px 12px}
+.frow .lb{flex:1;min-width:0}
+.frow .lb b{display:block;font-size:13px;font-weight:600}
+.frow .lb small{display:block;font-size:11px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frow .ok{color:#6f6}
+.hidefile{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+#panel input[type=range]{flex:1;accent-color:#4a7ab8}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+/* controle virtual sobre a tela */
+#pad{position:fixed;inset:0;pointer-events:none;z-index:4;display:none;opacity:var(--padA)}
+#pad.show{display:block}
+#pad .vb{pointer-events:auto;position:absolute;width:var(--s);height:var(--s);min-width:0;min-height:0;padding:0;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.22);font-weight:600;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.35);touch-action:none;color:#fff;text-shadow:0 1px 2px #000}
+#pad .vb.on{background:rgba(255,255,255,.4)}
+#pad .sq{border-radius:14px}
+/* botões no estilo do controle original (legenda do próprio jogo):
+   Start/Select: pílulas vermelhas com o rótulo acima; Verde e Vermelho: quadrados arredondados.
+   Amarelo e Azul: cores de referência, ainda não confirmadas pelas capturas. */
+#pad .face{border-radius:24%;border:2px solid rgba(0,0,0,.55);box-shadow:inset 0 2px 6px rgba(255,255,255,.35),0 2px 6px rgba(0,0,0,.6);text-shadow:0 1px 2px rgba(0,0,0,.7)}
+#pad .fz{background:linear-gradient(#5be36a,#1f8f32)}
+#pad .fx{background:linear-gradient(#f0584a,#b3231a)}
+#pad .fy{background:linear-gradient(#f3d54a,#b8900f)}
+#pad .fv{background:linear-gradient(#5b8ff0,#2148a8)}
+#mid{flex-direction:row}
+#mid .vb{border-radius:999px;background:linear-gradient(#f0584a,#b3231a);border:2px solid rgba(0,0,0,.5);font-size:calc(var(--s)*.18);letter-spacing:.5px;text-transform:uppercase;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.6)}
+#pad{--s:clamp(44px,13vmin,80px)}
+#stick{position:absolute;left:calc(var(--s)*.2);bottom:calc(var(--s)*.25);width:calc(var(--s)*2.9);height:calc(var(--s)*2.9);border-radius:50%;background:radial-gradient(circle at 50% 45%,#2c2c2c,#101010);border:2px solid rgba(255,255,255,.22);box-shadow:inset 0 3px 10px rgba(0,0,0,.8);pointer-events:auto;touch-action:none}
+#knob{position:absolute;width:45%;height:45%;left:27.5%;top:27.5%;border-radius:50%;background:radial-gradient(circle at 40% 35%,#e25552,#8c1d1f);box-shadow:0 4px 10px rgba(0,0,0,.7),inset 0 2px 4px rgba(255,255,255,.3);transition:none}
+#face{position:absolute;right:calc(var(--s)*.2);bottom:calc(var(--s)*.25);width:calc(var(--s)*3.2);height:calc(var(--s)*3.2)}
+#face .vb{position:absolute;font-size:calc(var(--s)*.15);letter-spacing:-.2px;white-space:nowrap;padding:0}
+#face .fx{left:calc(var(--s)*1.1);top:0}
+#face .fy{left:0;top:calc(var(--s)*1.1)}
+#face .fv{left:calc(var(--s)*2.2);top:calc(var(--s)*1.1)}
+#face .fz{left:calc(var(--s)*1.1);top:calc(var(--s)*2.2)}
+#mid{position:absolute;left:50%;top:calc(var(--s)*.3);transform:translateX(-50%);display:flex;flex-direction:column;gap:calc(var(--s)*.25);align-items:center}
+#mid .vb{position:static;width:calc(var(--s)*1.5);height:calc(var(--s)*.5);border-radius:calc(var(--s)*.25);font-size:calc(var(--s)*.17);letter-spacing:.5px;text-transform:uppercase}
+#sl{position:absolute;left:calc(var(--s)*.2);top:calc(var(--s)*1.1)}
+#sr{position:absolute;right:calc(var(--s)*.2);top:calc(var(--s)*1.1)}
+#sl .vb,#sr .vb{position:static;width:calc(var(--s)*2.2);height:calc(var(--s)*.6);border-radius:calc(var(--s)*.15);font-size:calc(var(--s)*.2);background:linear-gradient(#e0484a,#8c1d1f)}
+/* guia de ajuda */
+#help{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;z-index:20;align-items:center;justify-content:center;padding:14px}
+#help.open{display:flex}
+#help .box{max-width:580px;width:100%;max-height:90vh;overflow:auto;background:#181818;border:1px solid #3a3a3a;border-radius:12px;padding:18px 20px;line-height:1.5;font-size:14px;box-shadow:0 10px 40px #000}
+#help h2{margin:0 0 6px;font-size:18px}
+#help h3{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;opacity:.7}
+#help p,#help li{margin:4px 0}
+#help ul{padding-left:18px;margin:4px 0}
+#help kbd{background:#2a2a2a;border:1px solid #444;border-radius:4px;padding:0 5px;font-size:12px}
+#help .close{margin-top:14px;width:100%;padding:10px}
+#help .note{font-size:12px;opacity:.7}
+#welcome .link{background:none;border:none;color:#8ab4f8;font-size:13px;text-decoration:underline;padding:4px}
+</style>
+<div id=screen><canvas id=cv width=320 height=240></canvas></div>
+<div id=welcome>
+  <h1>HyperScan</h1>
+  <p>Emulador do Mattel HyperScan no navegador. Carregue o BIOS e um disco de jogo para começar.</p>
+  <div class=steps>
+    <button class=step id=stepBios><span class=n>1</span><span class=t><b>BIOS (hyperscan.bin)</b><small id=stBios>Nenhum arquivo escolhido</small></span><span class=ok id=okBios></span></button>
+    <button class=step id=stepDisc><span class=n>2</span><span class=t><b>Disco do jogo (.bin)</b><small id=stDisc>Nenhum arquivo escolhido</small></span><span class=ok id=okDisc></span></button>
+  </div>
+  <button id=start disabled>Rodar</button>
+  <small>Use ⚙ para opções, som e controle virtual</small>
+  <button class=link id=helpOpen>Como usar o emulador</button>
+</div>
+<div id=hud>
+  <button id=run disabled>Rodar</button>
+  <span id=stat></span>
+  <button id=gear title="Configurações" aria-label="Configurações">⚙</button>
+</div>
+<div id=err></div>
+<div id=panel>
+  <h4>Arquivos</h4>
+  <button class="frow" id=pBios><span class=lb><b>BIOS</b><small id=pBiosT>Nenhum</small></span><span class=ok id=pBiosOk></span></button>
+  <div class=row><button id=forgetBios>Esquecer BIOS</button><button id=helpBtn>Ajuda</button></div>
+  <button class="frow" id=pDisc><span class=lb><b>Disco</b><small id=pDiscT>Nenhum</small></span><span class=ok id=pDiscOk></span></button>
+  <input id=bios type=file class=hidefile>
+  <input id=disc type=file class=hidefile>
+  <h4>Opções</h4>
+  <label><input id=fast type=checkbox checked> boot rápido</label>
+  <label><input id=snd type=checkbox checked> som</label>
+  <label><input id=vpad type=checkbox> controle virtual</label>
+  <label>opacidade do controle <input id=padA type=range min=20 max=100 value=90></label>
+  <h4>Tela</h4>
+  <div class=row><button id=fsbtn>Tela cheia</button></div>
+  <details open>
+    <summary>Trocar botões</summary>
+    <label><input id=swVR type=checkbox> trocar Verde ↔ Vermelho</label>
+    <label><input id=swYB type=checkbox> trocar Amarelo ↔ Azul</label>
+    <label><input id=invY type=checkbox> inverter analógico vertical</label>
+    <label><input id=invX type=checkbox> inverter analógico horizontal</label>
+  </details>
+  <details>
+    <summary>Ferramentas</summary>
+    <div class=row>
+      <button id=step>Passo</button>
+      <button id=rst>Reset</button>
+      <button id=card>Passar cartão (5/1)</button>
+    </div>
+    <h4>Salvar jogo</h4>
+    <div class=row>
+      <button id=svst>Salvar estado</button>
+      <button id=ldst>Carregar estado</button>
+    </div>
+    <input id=stIn type=file accept=".hsstate" class=hidefile>
+  </details>
+  <details>
+    <summary>Diagnóstico</summary>
+    <pre id=uart>UART…</pre><pre id=log>—</pre>
+  </details>
+</div>
+<div id=help role=dialog aria-modal=true aria-labelledby=helpTitle>
+  <div class=box>
+    <h2 id=helpTitle>Como usar o HyperScan</h2>
+    <p class=note>Emulador do Mattel HyperScan no navegador. Você precisa do seu próprio BIOS e dos seus discos.</p>
+    <h3>Primeiros passos</h3>
+    <ul>
+      <li><b>1.</b> Carregue o BIOS (<code>hyperscan.bin</code>). Ele fica lembrado neste navegador, então você só precisa fazer isso uma vez.</li>
+      <li><b>2.</b> Carregue o disco do jogo (<code>.bin</code>). O disco <b>não</b> é guardado: a cada visita, carregue de novo.</li>
+      <li><b>3.</b> Toque em <b>Rodar</b>. Em celular o jogo entra em tela cheia.</li>
+    </ul>
+    <h3>Controles</h3>
+    <ul>
+      <li><b>Toque:</b> os botões aparecem sobre a tela. Dá para pressionar vários ao mesmo tempo.</li>
+      <li><b>Teclado:</b> <kbd>Enter</kbd> Start · <kbd>Shift</kbd> Select · <kbd>z</kbd> Verde · <kbd>x</kbd> Vermelho · <kbd>c</kbd> Amarelo · <kbd>v</kbd> Azul · <kbd>a</kbd>/<kbd>s</kbd> ombros L/R · <kbd>q</kbd>/<kbd>w</kbd> gatilhos LT/RT · setas = direcional</li>
+      <li><b>Botões invertidos?</b> Em ⚙ → Trocar botões, troque Verde↔Vermelho ou Amarelo↔Azul, e inverta o analógico se ele andar ao contrário.</li>
+    </ul>
+    <h3>Salvar o jogo</h3>
+    <ul>
+      <li>⚙ → Ferramentas → <b>Salvar estado</b> baixa um arquivo <code>.hsstate</code>.</li>
+      <li><b>Carregar estado</b> volta exatamente daquele ponto. Use o mesmo disco do save.</li>
+    </ul>
+    <h3>Dicas</h3>
+    <ul>
+      <li>O boot do BIOS leva cerca de 15 a 20 s até o menu, em celulares um pouco mais.</li>
+      <li>Se aparecer <i>No Disc</i>, o disco não foi carregado: carregue o disco e reinicie com <b>Reset</b>.</li>
+      <li>Se o som falhar, feche outras abas do navegador e deixe o celular na horizontal.</li>
+      <li>Se algo travar, use <b>Reset</b> em Ferramentas.</li>
+    </ul>
+    <h3>Privacidade</h3>
+    <p class=note>O BIOS fica no cache do seu navegador (IndexedDB). Você pode apagá-lo em ⚙ → Arquivos → Esquecer BIOS. Discos e saves nunca são guardados pelo emulador.</p>
+    <button class=close id=helpClose>Fechar</button>
+  </div>
+</div>
+<div id=pad>
+  <div id=sl>
+    <button class=vb data-k=a>L</button>
+  </div>
+  <div id=sr>
+    <button class=vb data-k=s>R</button>
+  </div>
+  <div id=stick aria-label="analógico">
+    <div id=knob></div>
+  </div>
+  <div id=face>
+    <button class="vb face fx" data-k=x data-base=x>Vermelho</button>
+    <button class="vb face fy" data-k=c data-base=c>Amarelo</button>
+    <button class="vb face fv" data-k=v data-base=v>Azul</button>
+    <button class="vb face fz" data-k=z data-base=z>Verde</button>
+  </div>
+  <div id=mid>
+    <button class=vb data-k=Enter>Start</button>
+    <button class=vb data-k=Shift>Select</button>
+  </div>
+</div>
+<script type="module" src="./app.js"></script>
