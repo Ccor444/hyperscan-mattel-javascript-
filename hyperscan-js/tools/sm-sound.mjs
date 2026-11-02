@@ -1,0 +1,10 @@
+import fs from 'fs';
+import { HyperScan } from '/mnt/user-data/outputs/hyperscan-js/src/hyperscan.js';
+const m = new HyperScan(new Uint8Array(fs.readFileSync('/mnt/user-data/uploads/hyperscan.bin')));
+m.insertDisc(new Uint8Array(fs.readFileSync('/mnt/user-data/uploads/Spider-Man__USA_.bin')));
+const io = m.io, chip = io.spuChip, st = () => m.bus.r32(0xa0154e30 - 14332);
+const until = (p, max) => { while (!p() && m.cpu.cycles < max) m.run(1e6); };
+const seg = (label) => { const pk = chip.peak; chip.peak = 0; console.log(label.padEnd(14), 'pico=' + pk.toFixed(3), 'canais iniciados=' + chip.starts, 'estado=' + st()); };
+until(() => st() === 35, 4000e6); let f0 = io.frames; while (io.frames < f0 + 120) m.run(100000); seg('menu parado');
+m.setPad(0, { ay: 255 }); f0 = io.frames; while (io.frames < f0 + 10) m.run(100000); m.setPad(0, { ay: 0x7f }); f0 = io.frames; while (io.frames < f0 + 40) m.run(100000); seg('cursor');
+m.setPad(0, { in0: 2 }); f0 = io.frames; while (io.frames < f0 + 30) m.run(100000); m.setPad(0, { in0: 0 }); until(() => st() === 15, 4000e6); seg('start');

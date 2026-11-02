@@ -1,0 +1,23 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+(async () => {
+  const srv = spawn('python3', ['-m', 'http.server', '8880', '--directory', '/tmp/uitest'], { stdio: 'ignore' });
+  await new Promise(r => setTimeout(r, 800));
+  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await page.goto('http://localhost:8880/index.html'); await page.waitForTimeout(600);
+  await page.click('#gear'); await page.setInputFiles('#bios', '/mnt/user-data/uploads/hyperscan.bin'); await page.setInputFiles('#disc', '/mnt/user-data/uploads/Spider-Man__USA_.bin'); await page.waitForTimeout(600); await page.click('#gear');
+  await page.evaluate(() => document.getElementById('start').click());
+  await page.waitForFunction(() => window.__getM().bus.r32(0xa0154e30 - 14332) === 35, null, { timeout: 150000, polling: 1000 });
+  await page.keyboard.down('Enter'); await page.waitForTimeout(300); await page.keyboard.up('Enter');
+  await page.waitForFunction(() => window.__getM().bus.r32(0xa0154e30 - 14332) === 15, null, { timeout: 90000, polling: 1000 });
+  await page.evaluate(() => document.getElementById('card').click());
+  await page.waitForFunction(() => window.__getM().bus.r32(0xa0154e30 - 14332) === 29, null, { timeout: 90000, polling: 1000 });
+  await page.waitForTimeout(2000);
+  const a = await page.evaluate(() => ({ f: window.__getM().io.frames, t: performance.now() }));
+  await page.waitForTimeout(8000);
+  const b = await page.evaluate(() => ({ f: window.__getM().io.frames, t: performance.now(), stat: document.getElementById('stat').textContent }));
+  console.log(`fase: ${((b.f - a.f) / ((b.t - a.t) / 1000)).toFixed(1)} quadros/s de emulação | ${b.stat} | erros: ${errs.length ? errs[0] : 'nenhum'}`);
+  await browser.close(); srv.kill();
+})().catch(e => { console.log('falhou:', e.message.split('\n')[0]); process.exit(0); });

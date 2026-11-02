@@ -1,0 +1,13 @@
+import fs from 'fs';
+import { HyperScan } from '/mnt/user-data/outputs/hyperscan-js/src/hyperscan.js';
+const m = new HyperScan(new Uint8Array(fs.readFileSync('/mnt/user-data/uploads/hyperscan.bin')));
+m.insertDisc(new Uint8Array(fs.readFileSync('/mnt/user-data/uploads/Spider-Man__USA_.bin')));
+const c = m.cpu, io = m.io, st = () => m.bus.r32(0xa0154e30 - 14332);
+const until = (p, max) => { while (!p() && c.cycles < max && !m.error) m.run(1e6); };
+const frames = n => { const f = io.frames + n; while (io.frames < f && !m.error) m.run(100000); };
+until(() => st() === 35, 4000e6); frames(120); m.setPad(0, { in0: 2 }); frames(30); m.setPad(0, { in0: 0 });
+until(() => st() === 15, 4000e6); frames(60); m.insertCard(5, 1); frames(90); m.removeCard(); until(() => st() === 29, 4000e6); frames(300);
+const i0 = c.cycles, s0 = m.idle ? m.idle.cycles : 0, f0 = io.frames;
+frames(300);
+const cyc = c.cycles - i0, idle = (m.idle ? m.idle.cycles : 0) - s0, fr = io.frames - f0;
+console.log(`por quadro: total=${(cyc/fr/1e3).toFixed(0)}k, pulado (ociosidade)=${(idle/fr/1e3).toFixed(0)}k, executado de verdade=${((cyc-idle)/fr/1e3).toFixed(0)}k`);

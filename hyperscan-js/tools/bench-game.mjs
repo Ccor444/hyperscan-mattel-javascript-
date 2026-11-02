@@ -1,0 +1,20 @@
+// Benchmark de jogo: chega à fase (Start, cartão virtual) e mede 300 quadros de gameplay (tempo, MIPS, quadros/s) + assinatura do estado.
+import fs from 'fs';
+import crypto from 'crypto';
+import { HyperScan } from '../src/hyperscan.js';
+const m = new HyperScan(new Uint8Array(fs.readFileSync(process.env.BIOS || '/mnt/user-data/uploads/hyperscan.bin')), { fastPaths: process.env.FAST !== '0' });
+m.insertDisc(new Uint8Array(fs.readFileSync(process.env.DISC || '/mnt/user-data/uploads/Spider-Man__USA_.bin')));
+const io = m.io, st = () => m.bus.r32(0xa0154e30 - 14332);
+const frames = (n) => { const f = io.frames + n; while (io.frames < f && !m.error) m.run(100000); };
+const until = (pred, max) => { while (!pred() && m.cpu.cycles < max) m.run(1e6); };
+m.cpu.useJit = process.env.JIT !== '0';
+const t00 = process.hrtime.bigint();
+until(() => st() === 35, 4000e6); frames(120); m.setPad(0, { in0: 2 }); frames(30); m.setPad(0, { in0: 0 });
+until(() => st() === 15, 4000e6); frames(60); m.insertCard(5, 1); frames(90); m.removeCard(); until(() => st() === 29, 4000e6); frames(100);
+const tBoot = Number(process.hrtime.bigint() - t00) / 1e9, bootInstr = m.cpu.cycles;
+const t0 = process.hrtime.bigint(), i0 = m.cpu.cycles, f0 = io.frames;
+m.setPad(0, { ax: 255 }); frames(150); m.setPad(0, { ax: 0 }); frames(150);
+const dt = Number(process.hrtime.bigint() - t0) / 1e9, di = m.cpu.cycles - i0;
+console.log(`boot até a fase: ${tBoot.toFixed(1)}s (${(bootInstr / 1e6) | 0}M instr, ${(bootInstr / tBoot / 1e6).toFixed(1)} MIPS)`);
+console.log(`gameplay: ${(io.frames - f0)} quadros em ${dt.toFixed(2)}s = ${((io.frames - f0) / dt).toFixed(0)} quadros/s, ${(di / dt / 1e6).toFixed(1)} MIPS, ${(di / (io.frames - f0) / 1e3).toFixed(0)}k instr/quadro, estado=${st()}`);
+console.log('ASSINATURA ram=' + crypto.createHash('md5').update(m.bus.ram).digest('hex').slice(0, 12) + ' pc=' + m.cpu.pc.toString(16) + ' regs=' + [...m.cpu.r].slice(0, 8).map(v => (v >>> 0).toString(16)).join(','));

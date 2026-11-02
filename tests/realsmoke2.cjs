@@ -1,0 +1,21 @@
+const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] }), p = await b.newPage({ viewport: { width: 1000, height: 800 }, acceptDownloads: true }); const errs = [];
+  p.on('pageerror', e => errs.push('pageerror ' + e.message)); p.on('console', m => { if (['error', 'warning'].includes(m.type())) errs.push(m.type() + ' ' + m.text()); });
+  await p.goto('http://localhost:8765/index.html');
+  await p.setInputFiles('#bios', '/home/claude/game/bios.bin');
+  await p.setInputFiles('#disc', '/home/claude/game/Spider-Man (USA).bin');
+  await p.waitForTimeout(1500);
+  await p.evaluate(() => document.getElementById('start').click());
+  await p.waitForTimeout(30000);
+  await p.keyboard.down('Enter'); await p.waitForTimeout(300); await p.keyboard.up('Enter');
+  await p.waitForTimeout(6000);
+  await p.screenshot({ path: '/tmp/browser2.png' });
+  console.log('stat:', await p.textContent('#stat'));
+  console.log((await p.textContent('#log')).split('\n').filter(l => /JIT|quadros|disco/.test(l)).join(' | '));
+  await p.evaluate(() => document.getElementById('gear').click());
+  const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 20000 }), p.evaluate(() => document.getElementById('svst').click())]);
+  const path = await dl.path(); console.log('save state baixado:', require('fs').statSync(path).size, 'bytes');
+  console.log('erros:', errs.length ? errs.slice(0, 5) : 'nenhum');
+  await b.close();
+})();

@@ -1,0 +1,21 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+(async () => {
+  const srv = spawn('python3', ['-m', 'http.server', '8811', '--directory', '/tmp/uitest'], { stdio: 'ignore' });
+  await new Promise(r => setTimeout(r, 800));
+  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
+  const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push('console:' + m.text()); });
+  await page.goto('http://localhost:8811/index.html'); await page.waitForTimeout(600);
+  await page.click('#gear'); await page.setInputFiles('#bios', '/mnt/user-data/uploads/hyperscan.bin'); await page.setInputFiles('#disc', '/mnt/user-data/uploads/Spider-Man__USA_.bin'); await page.waitForTimeout(800); await page.click('#gear');
+  await page.click('#run'); await page.waitForTimeout(3000);
+  const a0 = await page.evaluate(() => window.__getA());
+  console.log('worklet ativo:', a0.w, 'sr:', a0.sr, 'estado:', a0.st);
+  await page.waitForTimeout(57000);
+  const a1 = await page.evaluate(() => window.__getA());
+  const bufMs = Math.round((a1.posted - a1.consumedW) / a1.sr * 1000);
+  console.log(`após ~60 s: underruns do worklet=${a1.underW} (início ${a0.underW}), colchão=${bufMs} ms, amostras postadas=${a1.posted}, consumidas=${a1.consumedW}`);
+  const st = await page.evaluate(() => document.getElementById('stat').textContent);
+  console.log('stat:', st, '| erros:', errs.length ? errs.slice(0, 3).join(' | ') : 'nenhum');
+  await browser.close(); srv.kill();
+})();

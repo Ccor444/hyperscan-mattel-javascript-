@@ -1,0 +1,21 @@
+// Rastreia o laço principal do BIOS: funções chamadas (alvos de jl/brl) e acessos a periféricos, após um aquecimento.
+import fs from 'fs';
+import { HyperScan } from '../src/hyperscan.js';
+const m = new HyperScan(new Uint8Array(fs.readFileSync(process.env.BIOS || '/mnt/user-data/uploads/hyperscan.bin')));
+const WARM = +process.env.WARM || 8e6, LEN = +process.env.LEN || 4e6;
+m.run(WARM);
+const calls = new Map(), io = new Map();
+const c = m.cpu, io0 = m.io;
+const r0 = io0.read.bind(io0), w0 = io0.write.bind(io0);
+io0.read = (o, sz) => { const v = r0(o, sz); const k = `R 0x88${o.toString(16).padStart(6, '0')} pc=${c.pc.toString(16)}`; const e = io.get(k) || { n: 0, v: new Set() }; e.n++; if (e.v.size < 4) e.v.add((v >>> 0).toString(16)); io.set(k, e); return v; };
+io0.write = (o, v, sz) => { const k = `W 0x88${o.toString(16).padStart(6, '0')} pc=${c.pc.toString(16)}`; const e = io.get(k) || { n: 0, v: new Set() }; e.n++; if (e.v.size < 4) e.v.add((v >>> 0).toString(16)); io.set(k, e); return w0(o, v, sz); };
+const ex32 = c.exec32.bind(c), ex16 = c.exec16.bind(c);
+const note = (pc, before, next) => { if (c.r[3] !== before && next !== ((pc + 2) >>> 0) && next !== ((pc + 4) >>> 0)) calls.set(next, (calls.get(next) || 0) + 1); };
+c.exec32 = (pc, P, n) => { const b = c.r[3]; const x = ex32(pc, P, n); if (c.r[3] !== b) calls.set(x >>> 0, (calls.get(x >>> 0) || 0) + 1); return x; };
+c.exec16 = (pc, h, n) => { const b = c.r[3]; const x = ex16(pc, h, n); if (c.r[3] !== b) calls.set(x >>> 0, (calls.get(x >>> 0) || 0) + 1); return x; };
+m.run(LEN);
+console.log('quadros', m.io.frames, 'uart', JSON.stringify(m.uart));
+console.log('--- funções chamadas (alvo: n)');
+console.log([...calls.entries()].sort((a, b) => b[1] - a[1]).slice(0, +process.env.TOP || 40).map(([a, n]) => a.toString(16) + ':' + n).join(' '));
+console.log('--- E/S (acesso pc: n valores)');
+for (const [k, e] of [...io.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, +process.env.NIO || 40)) console.log(k, 'x' + e.n, [...e.v].join(','));

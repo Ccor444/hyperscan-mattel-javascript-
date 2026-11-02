@@ -1,0 +1,23 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+const fs = require('fs');
+(async () => {
+  const srv = spawn('python3', ['-m', 'http.server', '8890', '--directory', '/tmp/uitest'], { stdio: 'ignore' });
+  await new Promise(r => setTimeout(r, 800));
+  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  const ctx = await browser.newContext({ accept_downloads: true, viewport: { width: 844, height: 390 } });
+  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await page.goto('http://localhost:8890/index.html'); await page.waitForTimeout(600);
+  await page.click('#gear'); await page.setInputFiles('#bios', '/mnt/user-data/uploads/hyperscan.bin'); await page.setInputFiles('#disc', '/mnt/user-data/uploads/Spider-Man__USA_.bin'); await page.waitForTimeout(500);
+  await page.evaluate(() => document.getElementById('start').click()); await page.waitForTimeout(8000);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.evaluate(() => document.getElementById('svst').click())]);
+  const path = '/tmp/teste.hsstate'; await dl.saveAs(path);
+  console.log('download:', dl.suggestedFilename(), (fs.statSync(path).size / 1024 / 1024).toFixed(2), 'MB');
+  await page.waitForTimeout(4000);
+  await page.setInputFiles('#stIn', path); await page.waitForTimeout(3000);
+  const msg = await page.evaluate(() => document.getElementById('stat').textContent);
+  console.log('após carregar, barra de status:', msg);
+  await page.waitForTimeout(3000);
+  console.log('erros JS:', errs.length ? errs.slice(0, 2) : 'nenhum');
+  await browser.close(); srv.kill();
+})().catch(e => { console.log('falhou:', e.message.split('\n')[0]); process.exit(0); });

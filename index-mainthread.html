@@ -1,0 +1,489 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>HyperScan WASM</title>
+<style>
+:root{--padA:.9}
+html,body{margin:0;height:100%;background:#000;color:#ddd;font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:none}
+#screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+canvas{width:100vw;height:100vh;object-fit:contain;image-rendering:pixelated;display:block}
+body.portrait #screen{align-items:flex-start}
+body.portrait canvas{height:auto;width:100vw}
+body.portrait #pad{--s:clamp(40px,11vmin,62px)}
+body.portrait #sl,body.portrait #sr{top:37vh}
+body.portrait #dp,body.portrait #face{bottom:calc(var(--s)*1.5)}
+body.portrait #mid{bottom:10px}
+/* tela inicial */
+#welcome{position:fixed;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:radial-gradient(ellipse at center,#1d1d1d 0%,#000 70%);text-align:center}
+#welcome.hide{display:none}
+#welcome h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.3px}
+#welcome p{margin:0;max-width:420px;font-size:13px;opacity:.7;line-height:1.5}
+.steps{display:flex;flex-direction:column;gap:10px;width:min(340px,90vw)}
+.step{display:flex;align-items:center;gap:12px;padding:12px 14px;background:#161616;border:1px solid #333;border-radius:12px;cursor:pointer;text-align:left;color:#eee;font:inherit}
+.step .n{width:26px;height:26px;border-radius:50%;background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+.step .t{flex:1;min-width:0}
+.step .t b{display:block;font-size:14px}
+.step .t small{display:block;font-size:11px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .ok{color:#6f6;font-size:16px;flex:none}
+.step.done{border-color:#2d5a2d}
+#welcome #start{font-size:16px;padding:12px 28px;border-radius:12px;background:#2b4f7e;border-color:#3d6aa3;font-weight:600}
+#welcome #start:disabled{background:#1e1e1e;border-color:#333;color:#666;cursor:default}
+#welcome small{font-size:11px;opacity:.5}
+/* cabeçalho flutuante */
+#hud{position:fixed;top:max(8px,env(safe-area-inset-top));left:10px;right:10px;display:flex;align-items:center;gap:8px;z-index:6;pointer-events:none;transition:opacity .35s}
+#hud button{pointer-events:auto}
+#hud #stat{font-size:11px;opacity:.75;background:rgba(0,0,0,.45);padding:3px 8px;border-radius:8px;pointer-events:none}
+#gear{margin-left:auto}
+body.idle #hud{opacity:0}
+body.idle #hud button{pointer-events:none}
+button{font:inherit;color:#eee;background:rgba(30,30,30,.75);border:1px solid rgba(255,255,255,.22);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:active,button.on{background:rgba(58,90,138,.9)}
+button:disabled{opacity:.45;cursor:default}
+#err{position:fixed;top:56px;left:50%;transform:translateX(-50%);max-width:min(560px,92vw);background:rgba(120,20,20,.92);color:#fff;padding:8px 12px;border-radius:10px;font-size:12px;z-index:7;display:none;white-space:pre-wrap}
+#err.show{display:block}
+/* painel de configuração */
+#panel{position:fixed;top:60px;right:10px;width:min(360px,calc(100vw - 20px));max-height:calc(100vh - 80px);overflow:auto;background:#181818;border:1px solid #3a3a3a;border-radius:12px;padding:6px 14px 14px;box-shadow:0 8px 28px #000;display:none;z-index:10}
+#panel.open{display:block}
+#panel h4{margin:14px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.6;font-weight:600}
+#panel label{display:flex;align-items:center;gap:9px;margin:7px 0;font-size:13px}
+#panel details{margin-top:14px;border-top:1px solid #2a2a2a;padding-top:8px}
+#panel summary{cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:.6px;opacity:.6;font-weight:600;padding:4px 0}
+#panel details label{margin:6px 0}
+#panel pre{background:#000;padding:6px;overflow:auto;max-height:18vh;font-size:11px;white-space:pre-wrap;margin:6px 0;border-radius:6px}
+.frow{display:flex;align-items:center;gap:10px;width:100%;margin:6px 0;text-align:left;padding:9px 12px}
+.frow .lb{flex:1;min-width:0}
+.frow .lb b{display:block;font-size:13px;font-weight:600}
+.frow .lb small{display:block;font-size:11px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frow .ok{color:#6f6}
+.hidefile{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+#panel input[type=range]{flex:1;accent-color:#4a7ab8}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+/* controle virtual sobre a tela */
+#pad{position:fixed;inset:0;pointer-events:none;z-index:4;display:none;opacity:var(--padA)}
+#pad.show{display:block}
+#pad .vb{pointer-events:auto;position:absolute;width:var(--s);height:var(--s);min-width:0;min-height:0;padding:0;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.22);font-weight:600;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.35);touch-action:none;color:#fff;text-shadow:0 1px 2px #000}
+#pad .vb.on{background:rgba(255,255,255,.4)}
+#pad .sq{border-radius:14px}
+/* botões no estilo do controle original (legenda do próprio jogo):
+   Start/Select: pílulas vermelhas com o rótulo acima; Verde e Vermelho: quadrados arredondados.
+   Amarelo e Azul: cores de referência, ainda não confirmadas pelas capturas. */
+#pad .face{border-radius:24%;border:2px solid rgba(0,0,0,.55);box-shadow:inset 0 2px 6px rgba(255,255,255,.35),0 2px 6px rgba(0,0,0,.6);text-shadow:0 1px 2px rgba(0,0,0,.7)}
+#pad .fz{background:linear-gradient(#5be36a,#1f8f32)}
+#pad .fx{background:linear-gradient(#f0584a,#b3231a)}
+#pad .fy{background:linear-gradient(#f3d54a,#b8900f)}
+#pad .fv{background:linear-gradient(#5b8ff0,#2148a8)}
+#mid{flex-direction:row}
+#mid .vb{border-radius:999px;background:linear-gradient(#f0584a,#b3231a);border:2px solid rgba(0,0,0,.5);font-size:calc(var(--s)*.18);letter-spacing:.5px;text-transform:uppercase;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.6)}
+#pad{--s:clamp(44px,13vmin,80px)}
+#stick{position:absolute;left:calc(var(--s)*.2);bottom:calc(var(--s)*.25);width:calc(var(--s)*2.9);height:calc(var(--s)*2.9);border-radius:50%;background:radial-gradient(circle at 50% 45%,#2c2c2c,#101010);border:2px solid rgba(255,255,255,.22);box-shadow:inset 0 3px 10px rgba(0,0,0,.8);pointer-events:auto;touch-action:none}
+#knob{position:absolute;width:45%;height:45%;left:27.5%;top:27.5%;border-radius:50%;background:radial-gradient(circle at 40% 35%,#e25552,#8c1d1f);box-shadow:0 4px 10px rgba(0,0,0,.7),inset 0 2px 4px rgba(255,255,255,.3);transition:none}
+#face{position:absolute;right:calc(var(--s)*.2);bottom:calc(var(--s)*.25);width:calc(var(--s)*3.2);height:calc(var(--s)*3.2)}
+#face .vb{position:absolute;font-size:calc(var(--s)*.15);letter-spacing:-.2px;white-space:nowrap;padding:0}
+#face .fx{left:calc(var(--s)*1.1);top:0}
+#face .fy{left:0;top:calc(var(--s)*1.1)}
+#face .fv{left:calc(var(--s)*2.2);top:calc(var(--s)*1.1)}
+#face .fz{left:calc(var(--s)*1.1);top:calc(var(--s)*2.2)}
+#mid{position:absolute;left:50%;top:calc(var(--s)*.3);transform:translateX(-50%);display:flex;flex-direction:column;gap:calc(var(--s)*.25);align-items:center}
+#mid .vb{position:static;width:calc(var(--s)*1.5);height:calc(var(--s)*.5);border-radius:calc(var(--s)*.25);font-size:calc(var(--s)*.17);letter-spacing:.5px;text-transform:uppercase}
+#sl{position:absolute;left:calc(var(--s)*.2);top:calc(var(--s)*1.1)}
+#sr{position:absolute;right:calc(var(--s)*.2);top:calc(var(--s)*1.1)}
+#sl .vb,#sr .vb{position:static;width:calc(var(--s)*2.2);height:calc(var(--s)*.6);border-radius:calc(var(--s)*.15);font-size:calc(var(--s)*.2);background:linear-gradient(#e0484a,#8c1d1f)}
+/* guia de ajuda */
+#help{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;z-index:20;align-items:center;justify-content:center;padding:14px}
+#help.open{display:flex}
+#help .box{max-width:580px;width:100%;max-height:90vh;overflow:auto;background:#181818;border:1px solid #3a3a3a;border-radius:12px;padding:18px 20px;line-height:1.5;font-size:14px;box-shadow:0 10px 40px #000}
+#help h2{margin:0 0 6px;font-size:18px}
+#help h3{margin:16px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;opacity:.7}
+#help p,#help li{margin:4px 0}
+#help ul{padding-left:18px;margin:4px 0}
+#help kbd{background:#2a2a2a;border:1px solid #444;border-radius:4px;padding:0 5px;font-size:12px}
+#help .close{margin-top:14px;width:100%;padding:10px}
+#help .note{font-size:12px;opacity:.7}
+#welcome .link{background:none;border:none;color:#8ab4f8;font-size:13px;text-decoration:underline;padding:4px}
+/* ---- acabamento igual à referência (analógico, painel START/SELECT, botões X/Y/B/A, ombros) ---- */
+#stick{background:radial-gradient(circle,#0c0c0c 0 38%,#2a2a2a 38% 42%,#101010 42% 58%,#262626 58% 62%,#0a0a0a 62% 100%);border:none;box-shadow:0 6px 14px rgba(0,0,0,.7),inset 0 0 0 1px rgba(255,255,255,.06)}
+#knob{background:radial-gradient(circle at 42% 34%,#f5767a 0%,#d8373c 38%,#9c1c20 80%,#6e1214 100%);box-shadow:0 8px 16px rgba(0,0,0,.75),inset 0 -3px 6px rgba(0,0,0,.35),inset 0 2px 3px rgba(255,255,255,.35)}
+#face .vb{border-radius:50%;background:none;border:none;box-shadow:0 0 0 3px #111,0 6px 12px rgba(0,0,0,.7);font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:calc(var(--s)*.32);color:rgba(255,255,255,.55);text-shadow:0 1px 0 rgba(255,255,255,.25),0 -1px 1px rgba(0,0,0,.45);letter-spacing:0;text-transform:none}
+#face .fx{background:radial-gradient(circle at 50% 35%,#f2585a,#c4201f 70%,#8e1213)}
+#face .fy{background:radial-gradient(circle at 50% 35%,#ffe25a,#e9b51a 70%,#a77d0c)}
+#face .fv{background:radial-gradient(circle at 50% 35%,#5b8cf0,#2350c4 70%,#153a8c)}
+#face .fz{background:radial-gradient(circle at 50% 35%,#73d96a,#2f9c33 70%,#1c6a20)}
+#mid{background:#141414;border-radius:calc(var(--s)*.12);padding:calc(var(--s)*.12) calc(var(--s)*.22);box-shadow:0 6px 16px rgba(0,0,0,.7),inset 0 0 0 1px rgba(255,255,255,.05);gap:calc(var(--s)*.12)}
+#mid .plbl{color:#f2f2f2;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:calc(var(--s)*.2);letter-spacing:.4px;line-height:1;text-align:center}
+#mid .pill{width:calc(var(--s)*1.1);height:calc(var(--s)*.4);border-radius:999px;background:linear-gradient(#f56a6c,#b8221f 60%,#8a1516);border:1px solid #050505;box-shadow:inset 0 2px 3px rgba(255,255,255,.35),0 3px 6px rgba(0,0,0,.7);font-size:0}
+#sl .vb,#sr .vb{border-radius:calc(var(--s)*.14);width:calc(var(--s)*2.4);height:calc(var(--s)*.5);background:linear-gradient(#e85a5c,#a9191b 55%,#7c1011);border:2px solid #0a0a0a;box-shadow:inset 0 2px 3px rgba(255,255,255,.3),0 4px 8px rgba(0,0,0,.7);font-size:0}
+</style>
+<div id=screen><canvas id=cv width=320 height=240></canvas></div>
+<div id=welcome>
+  <h1>HyperScan</h1>
+  <p>Emulador do Mattel HyperScan no navegador. Carregue o BIOS e um disco de jogo para começar.</p>
+  <div class=steps>
+    <button class=step id=stepBios><span class=n>1</span><span class=t><b>BIOS (hyperscan.bin)</b><small id=stBios>Nenhum arquivo escolhido</small></span><span class=ok id=okBios></span></button>
+    <button class=step id=stepDisc><span class=n>2</span><span class=t><b>Disco do jogo (.bin)</b><small id=stDisc>Nenhum arquivo escolhido</small></span><span class=ok id=okDisc></span></button>
+  </div>
+  <button id=start disabled>Rodar</button>
+  <small>Use ⚙ para opções, som e controle virtual</small>
+  <button class=link id=helpOpen>Como usar o emulador</button>
+</div>
+<div id=hud>
+  <button id=run disabled>Rodar</button>
+  <span id=stat></span>
+  <button id=gear title="Configurações" aria-label="Configurações">⚙</button>
+</div>
+<div id=err></div>
+<div id=panel>
+  <h4>Arquivos</h4>
+  <button class="frow" id=pBios><span class=lb><b>BIOS</b><small id=pBiosT>Nenhum</small></span><span class=ok id=pBiosOk></span></button>
+  <div class=row><button id=forgetBios>Esquecer BIOS</button><button id=helpBtn>Ajuda</button></div>
+  <button class="frow" id=pDisc><span class=lb><b>Disco</b><small id=pDiscT>Nenhum</small></span><span class=ok id=pDiscOk></span></button>
+  <input id=bios type=file class=hidefile>
+  <input id=disc type=file class=hidefile>
+  <h4>Opções</h4>
+  <label><input id=fast type=checkbox checked> boot rápido</label>
+  <label><input id=snd type=checkbox checked> som</label>
+  <label><input id=vpad type=checkbox> controle virtual</label>
+  <label>opacidade do controle <input id=padA type=range min=20 max=100 value=90></label>
+  <h4>Tela</h4>
+  <div class=row><button id=fsbtn>Tela cheia</button></div>
+  <details open>
+    <summary>Trocar botões</summary>
+    <label><input id=swVR type=checkbox> trocar Verde ↔ Vermelho</label>
+    <label><input id=swYB type=checkbox> trocar Amarelo ↔ Azul</label>
+    <label><input id=invY type=checkbox> inverter analógico vertical</label>
+    <label><input id=invX type=checkbox> inverter analógico horizontal</label>
+  </details>
+  <details>
+    <summary>Ferramentas</summary>
+    <div class=row>
+      <button id=step>Passo</button>
+      <button id=rst>Reset</button>
+      <button id=card>Passar cartão (5/1)</button>
+    </div>
+    <h4>Salvar jogo</h4>
+    <div class=row>
+      <button id=svst>Salvar estado</button>
+      <button id=ldst>Carregar estado</button>
+    </div>
+    <input id=stIn type=file accept=".hsstate" class=hidefile>
+  </details>
+  <details>
+    <summary>Diagnóstico</summary>
+    <pre id=uart>UART…</pre><pre id=log>—</pre>
+  </details>
+</div>
+<div id=help role=dialog aria-modal=true aria-labelledby=helpTitle>
+  <div class=box>
+    <h2 id=helpTitle>Como usar o HyperScan</h2>
+    <p class=note>Emulador do Mattel HyperScan no navegador. Você precisa do seu próprio BIOS e dos seus discos.</p>
+    <h3>Primeiros passos</h3>
+    <ul>
+      <li><b>1.</b> Carregue o BIOS (<code>hyperscan.bin</code>). Ele fica lembrado neste navegador, então você só precisa fazer isso uma vez.</li>
+      <li><b>2.</b> Carregue o disco do jogo (<code>.bin</code>). O disco <b>não</b> é guardado: a cada visita, carregue de novo.</li>
+      <li><b>3.</b> Toque em <b>Rodar</b>. Em celular o jogo entra em tela cheia.</li>
+    </ul>
+    <h3>Controles</h3>
+    <ul>
+      <li><b>Toque:</b> os botões aparecem sobre a tela. Dá para pressionar vários ao mesmo tempo.</li>
+      <li><b>Teclado:</b> <kbd>Enter</kbd> Start · <kbd>Shift</kbd> Select · <kbd>z</kbd> Verde · <kbd>x</kbd> Vermelho · <kbd>c</kbd> Amarelo · <kbd>v</kbd> Azul · <kbd>a</kbd>/<kbd>s</kbd> ombros L/R · <kbd>q</kbd>/<kbd>w</kbd> gatilhos LT/RT · setas = direcional</li>
+      <li><b>Botões invertidos?</b> Em ⚙ → Trocar botões, troque Verde↔Vermelho ou Amarelo↔Azul, e inverta o analógico se ele andar ao contrário.</li>
+    </ul>
+    <h3>Salvar o jogo</h3>
+    <ul>
+      <li>⚙ → Ferramentas → <b>Salvar estado</b> baixa um arquivo <code>.hsstate</code>.</li>
+      <li><b>Carregar estado</b> volta exatamente daquele ponto. Use o mesmo disco do save.</li>
+    </ul>
+    <h3>Dicas</h3>
+    <ul>
+      <li>O boot do BIOS leva cerca de 15 a 20 s até o menu, em celulares um pouco mais.</li>
+      <li>Se aparecer <i>No Disc</i>, o disco não foi carregado: carregue o disco e reinicie com <b>Reset</b>.</li>
+      <li>Se o som falhar, feche outras abas do navegador e deixe o celular na horizontal.</li>
+      <li>Se algo travar, use <b>Reset</b> em Ferramentas.</li>
+    </ul>
+    <h3>Privacidade</h3>
+    <p class=note>O BIOS fica no cache do seu navegador (IndexedDB). Você pode apagá-lo em ⚙ → Arquivos → Esquecer BIOS. Discos e saves nunca são guardados pelo emulador.</p>
+    <button class=close id=helpClose>Fechar</button>
+  </div>
+</div>
+<div id=pad>
+  <div id=sl>
+    <button class=vb data-k=a aria-label="Ombro esquerdo L"></button>
+  </div>
+  <div id=sr>
+    <button class=vb data-k=s aria-label="Ombro direito R"></button>
+  </div>
+  <div id=stick aria-label="Analógico">
+    <div id=knob></div>
+  </div>
+  <div id=face>
+    <button class="vb face fx" data-k=x data-base=x aria-label="X vermelho">X</button>
+    <button class="vb face fy" data-k=c data-base=c aria-label="Y amarelo">Y</button>
+    <button class="vb face fv" data-k=v data-base=v aria-label="B azul">B</button>
+    <button class="vb face fz" data-k=z data-base=z aria-label="A verde">A</button>
+  </div>
+  <div id=mid>
+    <span class=plbl>START</span>
+    <button class="vb pill" data-k=Enter aria-label="Start"></button>
+    <button class="vb pill" data-k=Shift aria-label="Select"></button>
+    <span class=plbl>SELECT</span>
+  </div>
+</div>
+<script type=module>
+// ---- cache do BIOS no navegador (IndexedDB). Só o BIOS: discos e saves nunca são guardados aqui ----
+const DB = 'hyperscan', STORE = 'files';
+function idbOpen() { return new Promise((res, rej) => { const r = indexedDB.open(DB, 1); r.onupgradeneeded = () => r.result.createObjectStore(STORE); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbRun(mode, fn) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, mode); const out = fn(tx.objectStore(STORE)); tx.oncomplete = () => { db.close(); res(out && out.result); }; tx.onerror = () => { db.close(); rej(tx.error); }; }); }
+async function saveBios(bytes, name) { try { await idbRun('readwrite', st => st.put({ bytes, name }, 'bios')); } catch (_) { /* navegador sem IndexedDB: segue sem cache */ } }
+async function loadBiosCache() { try { return await idbRun('readonly', st => st.get('bios')); } catch (_) { return undefined; } }
+async function forgetBios() { try { await idbRun('readwrite', st => st.delete('bios')); } catch (_) {} }
+import { HyperScan } from './wasm/hyperscan-wasm.js';   // núcleo C++ compilado para WebAssembly (wasm/hyperscan.wasm)
+const $ = id => document.getElementById(id), log = $('log'), uart = $('uart'), stat = $('stat'), cv = $('cv'), ctx = cv.getContext('2d'); let img = ctx.createImageData(320, 240);
+let m = null, running = false, biosBytes = null, discBytes = null, biosName = null;
+const rd = f => f.arrayBuffer().then(b => new Uint8Array(b));
+let building = null;
+async function build() {
+  if (!biosBytes) return;
+  if (building) return building;
+  building = (async () => {
+    try {
+      const old = m; m = null; if (old) old.destroy();                // libera a memória WASM da máquina anterior
+      m = await HyperScan.create(biosBytes, { fastBoot: $('fast').checked });
+      if (discBytes) m.insertDisc(discBytes);
+      $('err').classList.remove('show'); info();
+    } catch (e) { $('err').textContent = 'Falha ao iniciar o núcleo WASM: ' + e.message; $('err').classList.add('show'); }
+    finally { building = null; }
+  })();
+  return building;
+}
+$('bios').onchange = async e => { const f = e.target.files[0]; if (!f) return; biosBytes = await rd(f); biosName = f.name; saveBios(biosBytes, f.name); refreshUI(); build(); };
+$('disc').onchange = async e => { if (!e.target.files[0]) return; discBytes = await rd(e.target.files[0]); refreshUI(); if (m) m.insertDisc(discBytes); info(); };
+// estado dos arquivos na tela inicial, no painel e no botão Rodar
+function refreshUI() {
+  const bn = biosName || $('bios').files[0]?.name, dn = $('disc').files[0]?.name;
+  $('stBios').textContent = bn || 'Nenhum arquivo escolhido'; $('okBios').textContent = bn ? '✓' : '';
+  $('stDisc').textContent = dn || 'Nenhum arquivo escolhido'; $('okDisc').textContent = dn ? '✓' : '';
+  $('stepBios').classList.toggle('done', !!bn); $('stepDisc').classList.toggle('done', !!dn);
+  $('pBiosT').textContent = bn || 'Nenhum'; $('pBiosOk').textContent = bn ? '✓' : '';
+  $('pDiscT').textContent = dn || 'Nenhum'; $('pDiscOk').textContent = dn ? '✓' : '';
+  $('run').disabled = !biosBytes; $('start').disabled = !biosBytes;
+}
+$('stepBios').onclick = () => $('bios').click();
+$('stepDisc').onclick = () => $('disc').click();
+$('pBios').onclick = () => $('bios').click();
+$('pDisc').onclick = () => $('disc').click();
+refreshUI();
+// o Rodar do cabeçalho some enquanto a tela inicial está visível (o botão grande faz a mesma coisa)
+function syncRun() { $('run').style.display = $('welcome').classList.contains('hide') ? '' : 'none'; }
+syncRun();
+$('fast').onchange = build;
+const hex = v => (v >>> 0).toString(16).padStart(8, '0');
+function info() {
+  if (!m) return;
+  let t = `pc=${hex(m.pc)} instr=${m.cycles} quadros=${m.frames}\n`;
+  for (let i = 0; i < 32; i += 4) t += [0, 1, 2, 3].map(j => `r${i + j}=${hex(m.reg(i + j))}`).join(' ') + '\n';
+  if (m.disc) t += `disco: ${m.disc.volumeId} (${m.disc.sectors} setores) ${m.cdhle ? `| CD HLE: ${m.cdhle.reads} leituras, ${(m.cdhle.bytes / 1024) | 0} KB` : ''}\n`;
+  if (!m.disc) t += 'sem disco: o BIOS vai parar em "No Disc"\n';
+  if (m.error) { t += `PARADA: ${m.error}\n`; $('err').textContent = `O emulador parou: ${m.error}`; $('err').classList.add('show'); }
+  log.textContent = t; uart.textContent = m.uart.replace(/\r/g, '').slice(-1500) || 'UART…';
+}
+let last = performance.now(), lastI = 0, lastF = 0, drawnFrame = -1, drawnAt = 0, drawSkip = 0, drawEvery = 1, drawMs = 0;
+function frame() {
+  if (!running || !m) return;
+  const t0 = performance.now();
+  // o áudio é o relógio quando o AudioWorklet está tocando: emula só enquanto há menos de 0,3 s de som pronto (sem estouro da fila)
+  const audioClock = !!wnode && !!actx && actx.state === 'running';
+  // orçamento maior quando o colchão de áudio está baixo (a emulação precisa acompanhar o som)
+  const budget = audioClock && audioSeconds() < 0.15 ? 25 : 13;
+  while (performance.now() - t0 < budget && !m.error) {
+    if (audioClock && audioSeconds() > 0.3) break;
+    m.run(20000);
+  }
+  // desenha só quando o emulador avançou um quadro de vídeo (desenhar a cada rAF custava ~8 ms sem mudança na imagem)
+  // desenho desacoplado da emulação: a emulação segue o áudio; o desenho só ocorre quando cabe no orçamento do quadro.
+  // Se copiar a imagem custa mais que o tempo de quadro (celulares), pula quadros de vídeo na tela (a lógica do jogo não muda).
+  if (m.frames !== drawnFrame && (drawSkip++ % drawEvery === 0 || performance.now() - drawnAt > 120)) {
+    const td0 = performance.now();
+    const [W, H] = m.screenSize(); if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; img = ctx.createImageData(W, H); }
+    m.renderTo(img); ctx.putImageData(img, 0, 0); drawnFrame = m.frames; drawnAt = performance.now();
+    const cost = performance.now() - td0; drawMs = drawMs * 0.8 + cost * 0.2;
+    drawEvery = drawMs > 12 ? 3 : drawMs > 6 ? 2 : 1;
+  }
+  info();
+  const now = performance.now(); if (now - last > 1000) { stat.textContent = `${(((m.cycles - lastI) / (now - last)) / 1000).toFixed(1)} MIPS · ${(((m.frames - lastF) * 1000) / (now - last)).toFixed(0)} quadros/s`; last = now; lastI = m.cycles; lastF = m.frames; }
+  feedAudio();
+  if (m.error) running = false; else requestAnimationFrame(frame);
+}
+// Áudio: o SPU gera no tempo emulado (io.tick -> spu.sync). A saída é um AudioWorklet (thread de áudio, não é travada pelo emulador),
+// alimentado por blocos da thread principal com um colchão de ~300 ms. Se o worklet não existir, usa o ScriptProcessor antigo.
+let actx = null, wnode = null, posted = 0, consumedW = 0, underW = 0, feedTimer = null, ratio = 1;
+async function startAudio() {
+  if (actx) { actx.resume(); return; }
+  try { actx = new AudioContext({ sampleRate: 44100 }); } catch (e) { try { actx = new AudioContext(); } catch (e2) { return; } }
+  ratio = 44100 / actx.sampleRate;
+  try {
+    await actx.audioWorklet.addModule('./audio-worklet.js');
+    wnode = new AudioWorkletNode(actx, 'hs-out', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    wnode.port.onmessage = e => { consumedW = e.data.consumed; underW = e.data.under; };
+    wnode.connect(actx.destination);
+    feedTimer = setInterval(feedAudio, 20);
+  } catch (e) {
+    wnode = null;                                                          // fallback: ScriptProcessor (thread principal)
+    const node = actx.createScriptProcessor(2048, 0, 2);
+    node.onaudioprocess = ev => {
+      const L = ev.outputBuffer.getChannelData(0), R = ev.outputBuffer.getChannelData(1), chip = m;
+      
+      const d = chip ? chip.pullAudio(L.length, ratio) : new Float32Array(L.length * 2), on = $('snd').checked;
+      for (let i = 0; i < L.length; i++) { L[i] = on ? d[2 * i] : 0; R[i] = on ? d[2 * i + 1] : 0; }
+    };
+    node.connect(actx.destination);
+  }
+}
+// segundos de áudio já sintetizados e ainda não tocados (anel do SPU + worklet)
+function audioSeconds() {
+  const chip = m; if (!chip) return 0;
+  return chip.audioBuffered() / 44100 + (wnode && actx ? Math.max(0, posted - consumedW) / actx.sampleRate : 0);
+}
+// mantém ~300 ms de áudio no worklet; só gera enquanto o jogo está rodando
+function feedAudio() {
+  if (!wnode || !m || !running || !actx) return;
+  const target = Math.round(0.3 * actx.sampleRate), buffered = posted - consumedW;
+  let need = target - buffered; if (need < 256) return; need = Math.min(need, 16384);
+  // só envia amostras REAIS: o anel do SPU pode ter menos do que o colchão pede; preencher com silêncio faria o nível parecer cheio
+  const real = Math.floor(m.audioBuffered() * actx.sampleRate / 44100);
+  need = Math.min(need, real); if (need < 256) return;
+  const d = m.pullAudio(need, ratio), on = $('snd').checked;
+  if (!on) d.fill(0);
+  wnode.port.postMessage(d, [d.buffer]); posted += need;
+}
+// ---- tela cheia (como app nativo) ----
+const isTouch = matchMedia('(pointer: coarse)').matches;
+async function fullscreen() {
+  try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); } catch (_) {}
+  try { await screen.orientation?.lock?.('landscape'); } catch (_) {}
+}
+$('fsbtn').onclick = () => { if (document.fullscreenElement) document.exitFullscreen?.(); else fullscreen(); };
+function orient() { document.body.classList.toggle('portrait', innerHeight > innerWidth); }
+addEventListener('resize', orient); orient();
+// cabeçalho some depois de 2,5 s sem toque durante o jogo; volta ao tocar na tela
+let idleT = 0;
+function wakeUI() { document.body.classList.remove('idle'); clearTimeout(idleT); if (running && !panel.classList.contains('open')) idleT = setTimeout(() => document.body.classList.add('idle'), 2500); }
+for (const ev of ['pointermove', 'pointerdown', 'keydown', 'touchstart']) addEventListener(ev, wakeUI, { passive: true });
+function startGame() { $('welcome').classList.add('hide'); syncRun(); $('run').click(); }
+$('start').onclick = startGame;
+$('run').onclick = async () => {
+  if (!m && biosBytes) await build();
+  startAudio(); running = !running; $('run').textContent = running ? 'Pausar' : 'Rodar';
+  if (running) $('welcome').classList.add('hide'); wakeUI();
+  if (running && isTouch) fullscreen();                                  // em celular, entra em tela cheia ao rodar
+  if (running) { last = performance.now(); lastI = m ? m.cycles : 0; lastF = m ? m.frames : 0; frame(); feedAudio(); }
+};
+$('step').onclick = () => { m?.run(1); info(); };
+$('rst').onclick = () => { build(); };
+// ---- save states (estado completo da máquina em arquivo .hsstate) ----
+function flashStat(text) { const old = stat.textContent; stat.textContent = text; setTimeout(() => { if (stat.textContent === text) stat.textContent = old; }, 2500); }
+$('svst').onclick = async () => {
+  if (!m) { flashStat('Carregue o BIOS e o disco antes de salvar'); return; }
+  const bytes = await m.saveState();
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+  const a = document.createElement('a'); a.href = url; a.download = `hyperscan-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.hsstate`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  flashStat('Estado salvo');
+};
+$('ldst').onclick = () => $('stIn').click();
+$('stIn').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (!m) { if (!biosBytes) { flashStat('Carregue o BIOS antes de carregar o estado'); return; } await build(); }
+  try {
+    await m.loadState(new Uint8Array(await f.arrayBuffer()));
+    drawnFrame = -1; $('welcome').classList.add('hide'); syncRun(); info();
+    flashStat('Estado carregado');
+  } catch (err) { flashStat('Não foi possível carregar: ' + err.message); }
+  e.target.value = '';
+};
+$('card').onclick = () => { if (!m || !m.insertCard) return; m.insertCard(5, 1); setTimeout(() => m.removeCard(), 2500); };
+
+// ---- engrenagem ----
+const panel = $('panel'), gear = $('gear');
+gear.onclick = e => { e.stopPropagation(); panel.classList.toggle('open'); document.body.classList.remove('idle'); };
+document.addEventListener('click', e => { if (panel.classList.contains('open') && !panel.contains(e.target) && e.target !== gear) panel.classList.remove('open'); });
+
+// ---- trocas de controle (configuráveis) ----
+const cfg = () => ({ VR: $('swVR').checked, YB: $('swYB').checked, invY: $('invY').checked, invX: $('invX').checked });
+// cor "física" pressionada -> tecla emitida (MAME hyperscan_ctrl: Verde=bit 0x80 IN.1, Vermelho=0x40, Amarelo=0x20, Azul=0x01 IN.0)
+function remapKey(k) {
+  const c = cfg();
+  if (k === 'z') return c.VR ? 'x' : 'z';
+  if (k === 'x') return c.VR ? 'z' : 'x';
+  if (k === 'c') return c.YB ? 'v' : 'c';
+  if (k === 'v') return c.YB ? 'c' : 'v';
+  return k;
+}
+const COLOR = { z: 'A', x: 'X', c: 'Y', v: 'B' };
+function renderFaceLabels() { for (const el of document.querySelectorAll('#face [data-base]')) el.textContent = COLOR[remapKey(el.dataset.base)]; }
+for (const id of ['swVR', 'swYB', 'invY', 'invX']) $(id).onchange = () => { renderFaceLabels(); pushPad(); };
+
+// ---- teclado e virtual usam o mesmo conjunto de teclas ----
+// Mapeamento (MAME hyperscan_ctrl): Enter=Start, Shift=Select, a/s=ombros E/D, q/w=gatilhos E/D, z/x/c/v=Verde/Vermelho/Amarelo/Azul; setas = analógico.
+const KEYS = { Enter: [0, 0x02], Shift: [0, 0x04], z: [1, 0x80], x: [1, 0x40], c: [1, 0x20], v: [0, 0x01], a: [0, 0x08], s: [0, 0x10], q: [0, 0x20], w: [0, 0x40] }, held = new Set();
+// analógico virtual (VR de X/Y, como no controle original): -1..1 nos dois eixos, arrastado pelo toque/mouse
+let stickX = 0, stickY = 0;
+function pushPad() {
+  if (!m) return; const c = cfg(); let in0 = 0, in1 = 0;
+  for (const k of held) { const r = remapKey(k); if (r in KEYS) { if (KEYS[r][0]) in1 |= KEYS[r][1]; else in0 |= KEYS[r][1]; } }
+  // teclado (setas) ou analógico na tela: o analógico tem prioridade quando está em uso
+  let dx = stickX, dy = stickY;
+  if (dx === 0 && dy === 0) {
+    dx = (held.has('ArrowRight') ? 1 : 0) - (held.has('ArrowLeft') ? 1 : 0);
+    dy = (held.has('ArrowDown') ? 1 : 0) - (held.has('ArrowUp') ? 1 : 0);
+  }
+  if (c.invX) dx = -dx;
+  if (c.invY) dy = -dy;
+  m.setPad(0, { in0, in1, ax: Math.round(0x7f + Math.max(-1, Math.min(1, dx)) * 127), ay: Math.round(0x7f + Math.max(-1, Math.min(1, dy)) * 127) });
+}
+const keyName = e => e.key.length === 1 ? e.key.toLowerCase() : e.key;
+addEventListener('keydown', e => { const k = keyName(e); if (k in KEYS || k.startsWith('Arrow')) { held.add(k); pushPad(); e.preventDefault(); } });
+addEventListener('keyup', e => { held.delete(keyName(e)); pushPad(); });
+
+// ---- controle virtual sobre a tela (toque e mouse, multitoque) ----
+const pad = $('pad'), vpad = $('vpad');
+vpad.checked = isTouch;
+const syncPad = () => pad.classList.toggle('show', vpad.checked);
+vpad.onchange = syncPad; syncPad(); renderFaceLabels();
+$('padA').oninput = e => document.documentElement.style.setProperty('--padA', (e.target.value / 100).toFixed(2));
+document.documentElement.style.setProperty('--padA', ($('padA').value / 100).toFixed(2));
+for (const el of pad.querySelectorAll('[data-k]')) {
+  const k = el.dataset.k;
+  const down = e => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) {} held.add(k); el.classList.add('on'); pushPad(); };
+  const up = () => { held.delete(k); el.classList.remove('on'); pushPad(); };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', up);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+// ---- analógico na tela ----
+const stickEl = $('stick'), knob = $('knob');
+function stickSet(e) {
+  const r = stickEl.getBoundingClientRect(), R = r.width / 2;
+  let dx = (e.clientX - (r.left + R)) / R, dy = (e.clientY - (r.top + R)) / R;
+  const len = Math.hypot(dx, dy); if (len > 1) { dx /= len; dy /= len; }
+  stickX = dx; stickY = dy;
+  knob.style.left = (50 + dx * 38 - 22.5) + '%'; knob.style.top = (50 + dy * 38 - 22.5) + '%';
+  pushPad();
+}
+function stickEnd() { stickX = 0; stickY = 0; knob.style.left = '27.5%'; knob.style.top = '27.5%'; pushPad(); }
+stickEl.addEventListener('pointerdown', e => { e.preventDefault(); try { stickEl.setPointerCapture(e.pointerId); } catch (_) {} stickSet(e); });
+stickEl.addEventListener('pointermove', e => { if (stickEl.hasPointerCapture && stickEl.hasPointerCapture(e.pointerId)) stickSet(e); });
+stickEl.addEventListener('pointerup', stickEnd);
+stickEl.addEventListener('pointercancel', stickEnd);
+stickEl.addEventListener('lostpointercapture', stickEnd);
+// ---- ajuda ----
+const helpEl = $('help');
+function openHelp() { helpEl.classList.add('open'); }
+function closeHelp() { helpEl.classList.remove('open'); }
+$('helpOpen').onclick = openHelp; $('helpBtn').onclick = () => { panel.classList.remove('open'); openHelp(); };
+$('helpClose').onclick = closeHelp;
+helpEl.addEventListener('click', e => { if (e.target === helpEl) closeHelp(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') closeHelp(); });
+// ---- esquecer BIOS ----
+$('forgetBios').onclick = async () => { await forgetBios(); biosBytes = null; biosName = null; m = null; refreshUI(); flashStat('BIOS esquecido'); };
+// ---- restaura o BIOS lembrado ao abrir a página ----
+loadBiosCache().then(rec => { if (rec && rec.bytes) { biosBytes = rec.bytes; biosName = rec.name; refreshUI(); flashStat('BIOS lembrada deste navegador'); } });
+</script>

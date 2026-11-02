@@ -1,0 +1,25 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+(async () => {
+  const srv = spawn('python3', ['-m', 'http.server', '8841', '--directory', '/tmp/lay'], { stdio: 'ignore' });
+  await new Promise(r => setTimeout(r, 800));
+  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await page.goto('http://localhost:8841/index.html'); await page.waitForTimeout(700);
+  await page.screenshot({ path: '/tmp/l2-inicio.png' });
+  console.log('Rodar da tela inicial desabilitado sem BIOS:', await page.locator('#start').isDisabled());
+  await page.setInputFiles('#bios', '/mnt/user-data/uploads/hyperscan.bin'); await page.setInputFiles('#disc', '/mnt/user-data/uploads/Spider-Man__USA_.bin'); await page.waitForTimeout(500);
+  console.log('Rodar habilitado com BIOS:', !(await page.locator('#start').isDisabled()));
+  await page.screenshot({ path: '/tmp/l2-inicio-pronto.png' });
+  await page.click('#gear'); await page.waitForTimeout(300); await page.screenshot({ path: '/tmp/l2-painel.png' }); await page.click('#gear');
+  await page.click('#start'); await page.waitForTimeout(4000);
+  console.log('tela inicial escondida:', !(await page.locator('#welcome').isVisible()));
+  await page.waitForTimeout(3500);
+  console.log('cabeçalho escondido após 2,5 s parado:', await page.evaluate(() => document.body.classList.contains('idle')));
+  await page.screenshot({ path: '/tmp/l2-jogo.png' });
+  await page.mouse.move(400, 200); await page.waitForTimeout(200);
+  console.log('cabeçalho volta ao tocar:', !(await page.evaluate(() => document.body.classList.contains('idle'))));
+  console.log('erros JS:', errs.length ? errs.slice(0, 2) : 'nenhum');
+  await browser.close(); srv.kill();
+})();
